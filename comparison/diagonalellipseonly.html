@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>FPS Aim: Pure Diagonal Ellipse (Control)</title>
+<style>
+html, body { margin: 0; background: #111; overflow: hidden; height: 100%; }
+canvas { display: block; width: 100%; height: 100%; }
+#info {
+  position: fixed; top: 8px; left: 8px;
+  color: #ccc; font-family: monospace; font-size: 12px;
+  user-select: none; pointer-events: none;
+}
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+<div id="info">mag: --</div>
+
+<script>
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+const info = document.getElementById("info");
+
+let width=0, height=0, centerX=0, centerY=0;
+let maxRadiusX=0, maxRadiusY=0, minRadius=0;
+const margin=18;
+const tiltAngle = 150 * Math.PI / 180;
+
+function resize() {
+  width = canvas.width = window.innerWidth;
+  height = canvas.height = window.innerHeight;
+  centerX = width/2;
+  centerY = height/2;
+  maxRadiusX = (width/2) - margin;
+  maxRadiusY = (height/2) - margin;
+  minRadius = Math.min(maxRadiusX, maxRadiusY);
+}
+window.addEventListener("resize", resize);
+resize();
+
+// Config constants
+const deadzone = 0.12;
+const exponent = 1.6;
+const inputLPAlpha = 0.25;
+const jitterIgnore = 0.008;
+const recenterSnapThreshold = 0.02;
+
+// ✅ DS5 scaling fix
+const stickScaleX = 1.12;
+const stickScaleY = 1.10;
+
+let smoothedInput = {x:0, y:0};
+let prevInput = {x:0, y:0};
+let reticle = {x:0, y:0};
+
+function rotate(x, y, angle) {
+  const c = Math.cos(angle), s = Math.sin(angle);
+  return {x: x*c - y*s, y: x*s + y*c};
+}
+
+function processStick(value) {
+  if (Math.abs(value) < deadzone) return 0;
+  const n = (value - Math.sign(value)*deadzone) / (1 - deadzone);
+  return Math.sign(n) * Math.pow(Math.abs(n), exponent);
+}
+
+function mapToReticle(normX, normY) {
+  const mag = Math.sqrt(normX*normX + normY*normY);
+  if (mag < recenterSnapThreshold) return {x:0, y:0};
+
+  const rotated = rotate(normX, normY, -tiltAngle);
+
+  const lenSq = rotated.x*rotated.x + rotated.y*rotated.y;
+  let clamped = {...rotated};
+  if (lenSq > 1) {
+    const invLen = 1 / Math.sqrt(lenSq);
+    clamped.x *= invLen;
+    clamped.y *= invLen;
+  }
+
+  const px = clamped.x * maxRadiusX;
+  const py = clamped.y * maxRadiusY;
+  return rotate(px, py, tiltAngle);
+}
+
+function interpolateReticleTowards(target, smoothing) {
+  const dx = target.x - reticle.x;
+  const dy = target.y - reticle.y;
+  const dist = Math.sqrt(dx*dx + dy*dy);
+  if (dist < 0.01) {
+    reticle.x = target.x;
+    reticle.y = target.y;
+    return;
+  }
+  const step = dist * smoothing;
+  reticle.x += dx / dist * step;
+  reticle.y += dy / dist * step;
+}
+
+function update() {
+  const gp = navigator.getGamepads()[0];
+  if (!gp) return;
+
+  // ✅ Apply DS5 scaling here
+  const rawX = Math.max(-1, Math.min(1, (gp.axes[2] ?? 0) * stickScaleX));
+  const rawY = Math.max(-1, Math.min(1, (gp.axes[3] ?? 0) * stickScaleY));
+
+  const mappedX = processStick(rawX);
+  const mappedY = processStick(rawY);
+
+  const mag = Math.sqrt(mappedX*mappedX + mappedY*mappedY);
+
+  if (mag < recenterSnapThreshold) {
+    smoothedInput = {x:0, y:0};
+    prevInput = {x:0, y:0};
+    interpolateReticleTowards({x:0,y:0}, 0.25);
+    info.textContent = `mag: 0.000`;
+    return;
+  }
+
+  smoothedInput.x = smoothedInput.x*(1-inputLPAlpha) + mappedX*inputLPAlpha;
+  smoothedInput.y = smoothedInput.y*(1-inputLPAlpha) + mappedY*inputLPAlpha;
+
+  if (Math.abs(smoothedInput.x - prevInput.x) < jitterIgnore) smoothedInput.x = prevInput.x;
+  if (Math.abs(smoothedInput.y - prevInput.y) < jitterIgnore) smoothedInput.y = prevInput.y;
+
+  prevInput = {...smoothedInput};
+
+  const target = mapToReticle(smoothedInput.x, smoothedInput.y);
+  interpolateReticleTowards(target, 0.25);
+  info.textContent = `mag: ${mag.toFixed(3)}`;
+}
+
+// Drawing
+function drawEllipseOutline() {
+  ctx.save();
+  ctx.translate(centerX, centerY);
+  ctx.rotate(tiltAngle);
+  ctx.beginPath();
+  ctx.ellipse(0, 0, maxRadiusX, maxRadiusY, 0, 0, Math.PI*2);
+  ctx.strokeStyle = '#555';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawReticle() {
+  ctx.beginPath();
+  ctx.arc(centerX + reticle.x, centerY + reticle.y, 6, 0, Math.PI*2);
+  ctx.fillStyle = 'red';
+  ctx.fill();
+}
+
+function drawCenterCross() {
+  const size = 6;
+  ctx.strokeStyle = "#888";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(centerX - size, centerY);
+  ctx.lineTo(centerX + size, centerY);
+  ctx.moveTo(centerX, centerY - size);
+  ctx.lineTo(centerX, centerY + size);
+  ctx.stroke();
+}
+
+function drawReticleDirectionLine() {
+  ctx.beginPath();
+  ctx.moveTo(centerX, centerY);
+  ctx.lineTo(centerX + reticle.x, centerY + reticle.y);
+  ctx.strokeStyle="red";
+  ctx.lineWidth=1.5;
+  ctx.setLineDash([6,4]);
+  ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+function draw() {
+  ctx.clearRect(0,0,width,height);
+  drawEllipseOutline();
+  drawCenterCross();
+
+  ctx.beginPath();
+  ctx.moveTo(centerX,centerY);
+  ctx.lineTo(centerX + smoothedInput.x * minRadius, centerY + smoothedInput.y * minRadius);
+  ctx.strokeStyle='yellow';
+  ctx.lineWidth=1.5;
+  ctx.stroke();
+
+  drawReticleDirectionLine();
+  drawReticle();
+}
+
+function loop(){ update(); draw(); requestAnimationFrame(loop); }
+loop();
+</script>
+</body>
+</html>
