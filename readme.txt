@@ -1,4 +1,4 @@
-# Squircular Lissajous Aim (Send Input Demo)
+# Squircular Lissajous Aiming (Send Input Demo)
 
 This is a demo of a controller aiming system that combines:
 
