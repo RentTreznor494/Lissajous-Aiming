@@ -45,8 +45,5 @@ The full version includes:
 - Hardware (Teensy) support for broader compatibility  
 - Complete setup guide  
 
-👉 [Your Gumroad Link]
-
----
 
 This repository is for demonstration purposes only.
