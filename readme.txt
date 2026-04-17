@@ -1,6 +1,6 @@
-# Squircular Lissajous Aim (Send Input Demo)
+# SELA (Superelliptical Lissajous Aim)
 
-This is a demo of a controller aiming system that combines:
+This is a Send Input demo of a controller aiming system that combines:
 
 - Gyro input (gross aim)
 - Displacement-based thumbstick aim (fine aim)
